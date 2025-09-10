@@ -1,0 +1,23 @@
+🧠 Student AI Assistant — Setup Instructions
+
+1. Make sure Python is installed on your computer (Python 3.10+)
+
+2. Open terminal or command prompt in this folder
+
+3. Create a virtual environment:
+   python -m venv venv
+
+4. Activate it:
+   - On Windows: venv\Scripts\activate
+   - On macOS/Linux: source venv/bin/activate
+
+5. Install all required libraries:
+   pip install -r requirements.txt
+
+6. Create a `.env` file in the same folder, and write this inside:
+   GROQ_API_KEY=your_actual_api_key_here
+
+7. Run the app:
+   streamlit run app.py
+
+8. The app will open in your browser.

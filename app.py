@@ -6,12 +6,71 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 import os
 
+# ✅ Must be the first Streamlit command
+st.set_page_config(page_title="Student AI Assistant", layout="wide", initial_sidebar_state="expanded")
+
+# ✅ Custom Light Theme with Colorful Headings
+st.markdown(
+    """
+    <style>
+    body, .stApp {
+        background-color: #f7faff !important;
+        color: #222 !important;
+    }
+
+    h1 {
+        color: #1a4f8b !important; /* Deep royal blue */
+    }
+
+    h2 {
+        color: #2c7a7b !important; /* Teal green */
+    }
+
+    .stTextInput>div>div>input, .stTextArea textarea {
+        background-color: #ffffff !important;
+        border: 1px solid #ddd;
+        color: #333;
+        padding: 0.5rem;
+        border-radius: 8px;
+    }
+
+    .stButton button {
+        background-color: #4da6ff;
+        color: white;
+        padding: 0.4rem 1rem;
+        border-radius: 6px;
+        border: none;
+    }
+
+    .stButton button:hover {
+        background-color: #3399ff;
+    }
+
+    .stExpander, .stTextArea, .stTextInput {
+        border-radius: 10px !important;
+        border: 1px solid #d9e4f5 !important;
+        box-shadow: 0 0 5px rgba(0,0,0,0.05);
+    }
+
+    ::placeholder {
+        color: #888 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ✅ Load API key (local .env OR Streamlit Secrets)
 load_dotenv()
+API_KEY = st.secrets.get("GROQ_API_KEY") if "GROQ_API_KEY" in st.secrets else os.getenv("GROQ_API_KEY")
 
-# Initialize LLM
-llm = ChatGroq(temperature=0, model_name="llama3-8b-8192")
+if not API_KEY:
+    st.error("API key not found. Please set GROQ_API_KEY in .env (local) or Streamlit Secrets (cloud).")
 
-# Helper for output formatting
+# ✅ Initialize Groq + LLaMA3
+llm = ChatGroq(temperature=0, model_name="llama3-8b-8192", groq_api_key=API_KEY)
+
+# ✅ Helper to call LLM
 def generate_response(system_msg, user_input):
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_msg),
@@ -20,12 +79,11 @@ def generate_response(system_msg, user_input):
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"input": user_input})
 
-# UI Setup
-st.set_page_config(page_title="Student AI Assistant", layout="wide")
+# ✅ App Title
 st.title("🎓 Student AI Assistant (Groq + LLaMA3)")
 st.write("Ask anything related to your studies — summaries, quizzes, MCQs, and more!")
 
-# Mode Selection
+# ✅ Sidebar: Mode selector
 mode = st.sidebar.selectbox("Choose a mode", ["Chat", "Summary", "Flashcards", "File Upload", "Exam Generator"])
 
 # --- Chat Mode ---
@@ -56,7 +114,6 @@ elif mode == "Flashcards":
                 "Create 5 Quizizz-style flashcards in this format:\nQ: [question]\nA: [answer]\nOnly include educational content.",
                 topic
             )
-
             cards = []
             for block in response.strip().split("\n"):
                 if block.startswith("Q:"):
@@ -71,7 +128,6 @@ elif mode == "Flashcards":
                         st.markdown(f"**Answer:** {a}")
             else:
                 st.warning("Could not generate flashcards. Try rephrasing your input.")
-
 
 # --- File Upload Mode ---
 elif mode == "File Upload":
