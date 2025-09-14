@@ -11,7 +11,8 @@ pypandoc==1.13
 reportlab==4.2.2
 openpyxl==3.1.2
 odfpy==1.4.1
-
+PyPDF2==3.0.1
+python-dotenv==1.0.1
 
 
 
