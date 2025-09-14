@@ -1,27 +1,13 @@
-# app.py  (FULL FILE)
 import streamlit as st
 import os
 import re
 from dotenv import load_dotenv
 import docx2txt
+from PyPDF2 import PdfReader
 
-# Prefer pypdf (new name). Fall back to PyPDF2 if needed.
-PdfReader = None
-try:
-    from pypdf import PdfReader  # recommended
-except Exception:
-    try:
-        from PyPDF2 import PdfReader  # legacy
-    except Exception:
-        PdfReader = None
-
-# Try to import langchain + groq support (optional)
+# Try to import langchain / Groq LLM support — optional
 LANGCHAIN_AVAILABLE = False
-ChatGroq = None
-ChatPromptTemplate = None
-StrOutputParser = None
 llm = None
-
 try:
     from langchain_groq import ChatGroq
     from langchain.prompts import ChatPromptTemplate
@@ -30,18 +16,23 @@ try:
 except Exception:
     LANGCHAIN_AVAILABLE = False
 
-# Must be the very first Streamlit command
+# Must be first Streamlit command
 st.set_page_config(page_title="Student AI Assistant", layout="wide", initial_sidebar_state="expanded")
 
 # Simple theme/styles
 st.markdown(
     """
     <style>
-    body, .stApp { background-color: #f7faff !important; color: #222 !important; }
+    body, .stApp {
+        background-color: #f7faff !important;
+        color: #222 !important;
+    }
     h1 { color: #1a4f8b !important; }
     h2 { color: #2c7a7b !important; }
     .stTextInput>div>div>input, .stTextArea textarea {
-        background-color: #fff !important; border: 1px solid #ddd; padding: 0.5rem; border-radius: 8px;
+        background-color: #fff !important;
+        border: 1px solid #ddd;
+        padding: 0.5rem; border-radius: 8px;
     }
     .stButton button { background-color: #4da6ff; color: white; border-radius: 6px; }
     .stButton button:hover { background-color: #3399ff; }
@@ -52,55 +43,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Load environment (.env)
+# Load API key (local .env OR Streamlit Secrets)
 load_dotenv()
+API_KEY = st.secrets.get("GROQ_API_KEY") if "GROQ_API_KEY" in st.secrets else os.getenv("GROQ_API_KEY")
 
-# Safe secret loader: try Streamlit secrets, then fallback to environment var
-def get_groq_api_key():
-    # Try st.secrets (Streamlit cloud / local secrets file) but don't crash if it's missing
-    try:
-        # Using bracket access so missing file/keys raise and we can fallback gracefully
-        return st.secrets["GROQ_API_KEY"]
-    except Exception:
-        # fallback to environment variable (.env or system env)
-        return os.getenv("GROQ_API_KEY")
-
-API_KEY = get_groq_api_key()
-
-# show boolean debug so you know it's loaded (DO NOT print API_KEY itself)
-st.sidebar.write("API key loaded?", bool(API_KEY))
-if not API_KEY:
-    st.sidebar.warning("GROQ_API_KEY not found. Set it in .env or Streamlit Secrets (see instructions).")
-
-# Initialize Groq + model (only if langchain_groq available and an API key present)
+# If langchain packages are available AND an API key is present, try to init the real LLM client.
 if LANGCHAIN_AVAILABLE and API_KEY:
     try:
-        # Recommended lightweight production model on Groq for chat-like usage:
-        # - 'llama-3.1-8b-instant'  -> fast & cheap (good for demos/interactive apps)
-        # Switch to e.g. 'llama-3.3-70b-versatile' for higher quality (cost > latency).
+        # ✅ Updated model name (old one was decommissioned)
         llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=API_KEY)
-        st.sidebar.success("LLM client initialized.")
-    except Exception as e:
+    except Exception:
         llm = None
-        st.sidebar.error(f"LLM init failed: {e}")
-else:
-    if not LANGCHAIN_AVAILABLE:
-        st.sidebar.info("langchain_groq not installed — app will run in DEMO mode.")
-    else:
-        st.sidebar.info("API key missing — app will run in DEMO mode.")
 
+# If not using real LLM, show a clear banner so the examiner knows it's demo-mode
 DEMO_MODE = llm is None
 if DEMO_MODE:
     st.warning("DEMO MODE: LLM backend not available. App will use safe, local demo responses. For full AI, install `langchain-groq` and set GROQ_API_KEY in Streamlit Secrets.")
 
 # ---------- Helpers ----------
+
 def demo_response(system_msg: str, user_input: str) -> str:
-    """Deterministic demo responder used when LLM isn't available."""
+    """Simple deterministic demo responder used when LLM isn't available."""
     text = (user_input or "").strip()
     if not text:
         return "No input provided."
 
-    # Summarize: split into sentences and return top bullets
     if "summar" in system_msg.lower():
         sents = re.split(r'(?<=[.!?])\s+', text)
         bullets = [s.strip() for s in sents if s.strip()][:5]
@@ -108,7 +75,6 @@ def demo_response(system_msg: str, user_input: str) -> str:
             return "\n".join([f"- {b}" for b in bullets])
         return "Couldn't extract clear sentences to summarize."
 
-    # Flashcards heuristic
     if "flashcard" in system_msg.lower():
         sents = re.split(r'(?<=[.!?])\s+', text)
         cards = []
@@ -122,7 +88,6 @@ def demo_response(system_msg: str, user_input: str) -> str:
             cards.append(f"Q: {q}\nA: {a}")
         return "\n\n".join(cards)
 
-    # MCQ heuristic
     if "multiple-choice" in system_msg.lower() or "mcq" in system_msg.lower() or "multiple choice" in system_msg.lower():
         mcqs = []
         for i in range(1, 6):
@@ -131,13 +96,12 @@ def demo_response(system_msg: str, user_input: str) -> str:
             )
         return "\n\n".join(mcqs)
 
-    # Default chat: echo first two sentences concisely
     sents = re.split(r'(?<=[.!?])\s+', text)
     concise = " ".join(sents[:2]) if sents else text
     return f"Demo reply — concise explanation:\n{concise}"
 
 def generate_response(system_msg: str, user_input: str) -> str:
-    """Use real LLM if available, otherwise demo_response. Errors fall back to demo_response but surface a short note."""
+    """Use real LLM if available, otherwise use demo_response."""
     if llm:
         try:
             prompt = ChatPromptTemplate.from_messages([
@@ -147,13 +111,12 @@ def generate_response(system_msg: str, user_input: str) -> str:
             chain = prompt | llm | StrOutputParser()
             return chain.invoke({"input": user_input})
         except Exception as e:
-            # fallback to demo but surface a short note for debugging
             return demo_response(system_msg, user_input) + f"\n\n[Note: LLM call failed: {e}]"
     else:
         return demo_response(system_msg, user_input)
 
 def read_uploaded_file_to_text(uploaded_file) -> str:
-    """Read PDF or DOCX from uploaded_file to plain text using pypdf / PyPDF2 / docx2txt."""
+    """Read PDF or DOCX from uploaded_file to plain text using PyPDF2/docx2txt."""
     if not uploaded_file:
         return ""
     os.makedirs("tmp_uploads", exist_ok=True)
@@ -163,14 +126,11 @@ def read_uploaded_file_to_text(uploaded_file) -> str:
 
     lower = uploaded_file.name.lower()
     if lower.endswith(".pdf"):
-        if PdfReader is None:
-            return "[Error reading PDF: pypdf/PyPDF2 not installed]"
         try:
             reader = PdfReader(path)
             text = ""
-            # pypdf & PyPDF2 differ slightly; handle generically
-            for p in getattr(reader, "pages", reader.pages if hasattr(reader, "pages") else []):
-                page_text = p.extract_text() if hasattr(p, "extract_text") else p.extractText()
+            for p in reader.pages:
+                page_text = p.extract_text()
                 if page_text:
                     text += page_text + "\n"
             return text
@@ -185,6 +145,7 @@ def read_uploaded_file_to_text(uploaded_file) -> str:
         return "[Unsupported file type]"
 
 # ---------- UI ----------
+
 st.title("🎓 Student AI Assistant (Demo-capable)")
 
 mode = st.sidebar.selectbox("Choose a mode", ["Chat", "Summary", "Flashcards", "File Upload", "Exam Generator"])
@@ -234,8 +195,6 @@ elif mode == "Flashcards":
                         st.markdown(f"**Answer:** {a}")
             else:
                 st.info("Demo produced no structured flashcards; try rephrasing.")
-        else:
-            st.warning("Please enter topic/content.")
 
 elif mode == "File Upload":
     st.subheader("📄 Upload PDF or DOCX")
